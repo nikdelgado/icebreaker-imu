@@ -4,7 +4,7 @@ Learning Verilog/FPGAs from scratch on an **iCEBreaker** (Lattice iCE40 UP5K, sg
 building up to reading sensor telemetry from an **ICM-20948 IMU** over SPI and
 eventually displaying it over HDMI/DVI.
 
-This is a learning project: every line is written by hand, one concept at a time.
+This is a learning project.
 
 ## Toolchain
 
@@ -35,10 +35,8 @@ vvp sim                                          # run; prints output, writes wa
 gtkwave wave.vcd                                 # inspect waveforms
 ```
 
-Lesson learned early: **a testbench only proves what it actually checks.** Always
-verify the signals you *drive* (e.g. MOSI), not just the ones you receive.
 
-## Board cheat-sheet (from icebreaker.pcf)
+## icebreaker.pcf
 
 | Signal      | Pin | Notes                                  |
 |-------------|-----|----------------------------------------|
