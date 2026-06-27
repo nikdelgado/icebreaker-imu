@@ -1,0 +1,15 @@
+# Build artifacts
+*.json
+*.asc
+*.bin
+*.log
+
+# Simulation outputs
+*.vcd
+*_tb
+*_sim
+*_syntb
+*_syn.v
+
+# macOS
+.DS_Store
