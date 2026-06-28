@@ -18,6 +18,7 @@ reg [15:0]  spi_shift_register;
 reg [4:0]   spi_bit_counter = 0;
 reg [7:0]   spi_result = 0;
 reg         spi_rx_bit = 0;
+reg         spi_woken = 0;
 reg [2:0]   clock_divider = 0;
 reg [1:0]   state = IDLE;
 
@@ -63,9 +64,14 @@ always @(posedge CLK) begin
 
         case (state)
             IDLE: begin
+                if (!spi_woken) begin
+                    spi_shift_register <= 16'h0601; // write PWR_MGMT_1 = 0x01
+                end else begin
+                    spi_shift_register <= 16'hAD00; // read 
+                end
+
                 spi_cs <= 1;
                 spi_sclk <= 0;
-                spi_shift_register <= 16'h8000;
                 spi_bit_counter <= 0;
                 state <= ASSERT;
 
@@ -90,6 +96,7 @@ always @(posedge CLK) begin
             end DONE: begin
                 spi_cs <= 1;
                 spi_result <= spi_shift_register[7:0];
+                spi_woken <= 1;
                 state <= IDLE;
             end
         endcase
