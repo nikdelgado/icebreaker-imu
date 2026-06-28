@@ -11,5 +11,9 @@
 *_syntb
 *_syn.v
 
+# Testbench sources + sim binary (kept local, not committed)
+tb_*.v
+/sim
+
 # macOS
 .DS_Store
