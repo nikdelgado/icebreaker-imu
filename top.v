@@ -1,121 +1,116 @@
-
+// top - controller that wakes the IMU, burst-reads 3-axis accel, and streams
+// it as "XXXX YYYY ZZZZ\r\n" over UART. All the real work lives in the
+// spi_master and uart_tx modules; this is just orchestration.
 module top (
     output TX,
     output spi_mosi,
-    output reg spi_sclk,
-    output reg spi_cs,
-    input spi_miso,
-    input CLK
+    output spi_sclk,
+    output spi_cs,
+    input  spi_miso,
+    input  CLK
 );
+    // ---------------- SPI master ----------------
+    reg  [55:0] spi_tx_data  = 0;
+    reg  [6:0]  spi_num_bits = 0;
+    reg         spi_start    = 0;
+    wire [47:0] spi_rx_data;
+    wire        spi_done;
 
-localparam IDLE = 2'd0, ASSERT = 2'd1, TRANSFER = 2'd2, DONE = 2'd3;
+    spi_master #(.HALF_CLKS(4)) u_spi (
+        .clk(CLK), .tx_data(spi_tx_data), .num_bits(spi_num_bits),
+        .start(spi_start), .miso(spi_miso),
+        .sclk(spi_sclk), .mosi(spi_mosi), .cs(spi_cs),
+        .rx_data(spi_rx_data), .done(spi_done)
+    );
 
-reg [7:0]   uart_tx_rate_counter = 0;
-reg [3:0]   uart_char_index = 0;
-reg [9:0]   uart_shift_register = 10'h3FF;
-reg [5:0]   uart_bit_counter = 0;
-reg [55:0]  spi_shift_register;
-reg [5:0]   spi_bit_counter = 0;
-reg [47:0]  spi_result = 0;
-reg [5:0]   spi_num_bits = 0;
-reg         spi_rx_bit = 0;
-reg         spi_woken = 0;
-reg [2:0]   clock_divider = 0;
-reg [1:0]   state = IDLE;
+    // ---------------- UART transmitter ----------------
+    reg  [7:0] uart_data  = 0;
+    reg        uart_start = 0;
+    wire       uart_busy;
 
-assign TX = uart_shift_register[0];
-assign spi_mosi = spi_shift_register[55];
+    uart_tx #(.CLKS_PER_BIT(104)) u_uart (
+        .clk(CLK), .data(uart_data), .start(uart_start),
+        .tx(TX), .busy(uart_busy)
+    );
 
-function [7:0] hex_to_char(input [3:0] nibble);
-    if (nibble < 10) 
-        hex_to_char = "0" + nibble;
-    else
-        hex_to_char = "A" + (nibble - 10);
-endfunction
+    // ---------------- formatting helpers ----------------
+    reg [47:0] spi_result = 0;        // latest X/Y/Z sample
+    reg [3:0]  char_index = 0;        // which of the 16 output chars
 
-function [7:0] get_tx_byte (input [3:0] idx);
-    case (idx)
-        4'd0: get_tx_byte = hex_to_char(spi_result[47:44]);
-        4'd1: get_tx_byte = hex_to_char(spi_result[43:40]);
-        4'd2: get_tx_byte = hex_to_char(spi_result[39:36]);
-        4'd3: get_tx_byte = hex_to_char(spi_result[35:32]);
-        4'd4: get_tx_byte = 8'h20;
-        4'd5: get_tx_byte = hex_to_char(spi_result[31:28]);
-        4'd6: get_tx_byte = hex_to_char(spi_result[27:24]);
-        4'd7: get_tx_byte = hex_to_char(spi_result[23:20]);
-        4'd8: get_tx_byte = hex_to_char(spi_result[19:16]);
-        4'd9: get_tx_byte = 8'h20;
-        4'd10: get_tx_byte = hex_to_char(spi_result[15:12]);
-        4'd11: get_tx_byte = hex_to_char(spi_result[11:8]);
-        4'd12: get_tx_byte = hex_to_char(spi_result[7:4]);
-        4'd13: get_tx_byte = hex_to_char(spi_result[3:0]);
-        4'd14: get_tx_byte = 8'h0D;
-        default: get_tx_byte = 8'h0A;
-    endcase
-endfunction
+    function [7:0] hex_to_char(input [3:0] nibble);
+        if (nibble < 10) hex_to_char = "0" + nibble;
+        else             hex_to_char = "A" + (nibble - 10);
+    endfunction
 
-always @(posedge CLK) begin
-    uart_tx_rate_counter <= uart_tx_rate_counter + 1;
-    clock_divider <= clock_divider + 1;
+    function [7:0] get_tx_byte(input [3:0] idx);
+        case (idx)
+            4'd0:  get_tx_byte = hex_to_char(spi_result[47:44]);
+            4'd1:  get_tx_byte = hex_to_char(spi_result[43:40]);
+            4'd2:  get_tx_byte = hex_to_char(spi_result[39:36]);
+            4'd3:  get_tx_byte = hex_to_char(spi_result[35:32]);
+            4'd4:  get_tx_byte = 8'h20;                         // space
+            4'd5:  get_tx_byte = hex_to_char(spi_result[31:28]);
+            4'd6:  get_tx_byte = hex_to_char(spi_result[27:24]);
+            4'd7:  get_tx_byte = hex_to_char(spi_result[23:20]);
+            4'd8:  get_tx_byte = hex_to_char(spi_result[19:16]);
+            4'd9:  get_tx_byte = 8'h20;                         // space
+            4'd10: get_tx_byte = hex_to_char(spi_result[15:12]);
+            4'd11: get_tx_byte = hex_to_char(spi_result[11:8]);
+            4'd12: get_tx_byte = hex_to_char(spi_result[7:4]);
+            4'd13: get_tx_byte = hex_to_char(spi_result[3:0]);
+            4'd14: get_tx_byte = 8'h0D;                         // \r
+            default: get_tx_byte = 8'h0A;                       // \n
+        endcase
+    endfunction
 
-    if (uart_tx_rate_counter == 103) begin
-        uart_tx_rate_counter <= 0;
+    // ---------------- controller FSM ----------------
+    localparam WAKE_START  = 3'd0,   // issue the wake write
+               WAKE_WAIT   = 3'd1,
+               READ_START  = 3'd2,   // issue the accel burst read
+               READ_WAIT   = 3'd3,
+               PRINT_NEXT  = 3'd4,   // hand one byte to the UART
+               PRINT_BUSY  = 3'd5,   // wait for UART to accept it
+               PRINT_WAIT  = 3'd6;   // wait for UART to finish it
+    reg [2:0] cstate = WAKE_START;
 
-        if (uart_bit_counter == 10) begin
-            uart_bit_counter <= 0;
-            uart_shift_register <= {1'b1, get_tx_byte(uart_char_index), 1'b0};
-            uart_char_index <= uart_char_index + 1;
+    always @(posedge CLK) begin
+        spi_start  <= 0;   // pulses: default low, raised for one cycle below
+        uart_start <= 0;
 
-        end else begin
-            uart_bit_counter <= uart_bit_counter + 1;
-            uart_shift_register <= {1'b1, uart_shift_register[9:1]};
-        end
-    end
+        case (cstate)
+            WAKE_START: begin
+                spi_tx_data  <= {24'h060100, 32'h0};  // PWR_MGMT_1<=0x01, PWR_MGMT_2<=0x00
+                spi_num_bits <= 24;
+                spi_start    <= 1;
+                cstate       <= WAKE_WAIT;
+            end
+            WAKE_WAIT: if (spi_done) cstate <= READ_START;
 
-    if (clock_divider == 4) begin
-        clock_divider <= 0;
+            READ_START: begin
+                spi_tx_data  <= {8'hAD, 48'h0};        // read ACCEL_XOUT_H + 6 bytes
+                spi_num_bits <= 56;
+                spi_start    <= 1;
+                cstate       <= READ_WAIT;
+            end
+            READ_WAIT: if (spi_done) begin
+                spi_result <= spi_rx_data;
+                char_index <= 0;
+                cstate     <= PRINT_NEXT;
+            end
 
-        case (state)
-            IDLE: begin
-                if (!spi_woken) begin
-                    spi_shift_register <= {24'h060100, 32'h0}; 
-                    spi_num_bits <= 24;
-                end else begin
-                    spi_shift_register <= {8'hAD, 48'h0}; 
-                    spi_num_bits <= 56;
+            PRINT_NEXT: begin
+                uart_data  <= get_tx_byte(char_index);
+                uart_start <= 1;
+                cstate     <= PRINT_BUSY;
+            end
+            PRINT_BUSY: if (uart_busy) cstate <= PRINT_WAIT;
+            PRINT_WAIT: if (!uart_busy) begin
+                if (char_index == 15) cstate <= READ_START;   // done; read again
+                else begin
+                    char_index <= char_index + 1;
+                    cstate     <= PRINT_NEXT;
                 end
-
-                spi_cs <= 1;
-                spi_sclk <= 0;
-                spi_bit_counter <= 0;
-                state <= ASSERT;
-
-            end ASSERT: begin
-                spi_cs <= 0;
-                state <= TRANSFER;
-
-            end TRANSFER: begin
-                spi_sclk <= ~spi_sclk;
-
-                if (spi_sclk == 0) begin
-                    spi_rx_bit <= spi_miso;
-                end else begin
-                    spi_shift_register <= {spi_shift_register[54:0], spi_rx_bit};
-                    spi_bit_counter <= spi_bit_counter + 1;
-
-                    if (spi_bit_counter == spi_num_bits - 1) begin
-                        state <= DONE;
-                    end
-                end
-
-            end DONE: begin
-                spi_cs <= 1;
-                spi_result <= spi_shift_register[47:0];
-                spi_woken <= 1;
-                state <= IDLE;
             end
         endcase
-
     end
-end
 endmodule

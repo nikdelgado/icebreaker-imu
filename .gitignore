@@ -3,17 +3,3 @@
 *.asc
 *.bin
 *.log
-
-# Simulation outputs
-*.vcd
-*_tb
-*_sim
-*_syntb
-*_syn.v
-
-# Testbench sources + sim binary (kept local, not committed)
-tb_*.v
-/sim
-
-# macOS
-.DS_Store

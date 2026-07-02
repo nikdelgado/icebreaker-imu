@@ -15,21 +15,6 @@ all: $(PROJ).bin
 %.bin: %.asc
 	icepack $< $@
 
-%_tb: %_tb.v %.v
-	iverilog -g2012 -o $@ $^
-
-%_tb.vcd: %_tb
-	vvp -N $< +vcd=$@
-
-%_syn.v: %.json
-	yosys -p 'read_json $^; write_verilog $@'
-
-%_syntb: %_tb.v %_syn.v
-	iverilog -o $@ $^ `yosys-config --datdir/ice40/cells_sim.v`
-
-%_syntb.vcd: %_syntb
-	vvp -N $< +vcd=$@
-
 iceprog: $(PROJ).bin
 	iceprog $<
 

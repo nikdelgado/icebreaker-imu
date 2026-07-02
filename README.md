@@ -1,58 +1,46 @@
 # icebreaker-imu
 
-Learning Verilog/FPGAs from scratch on an **iCEBreaker** (Lattice iCE40 UP5K, sg48),
-building up to reading sensor telemetry from an **ICM-20948 IMU** over SPI and
-eventually displaying it over HDMI/DVI.
+Learning Verilog/FPGAs from scratch on an **iCEBreaker** (Lattice iCE40 UP5K, sg48).
+The goal is to implement SPI and UART from scratch in Verilog and use them to read an
+ICM-20948 IMU, streaming accelerometer data back to the PC over UART.
 
-This is a learning project.
+## Demo
+https://youtu.be/aYoU_bqlsIE
 
 ## Toolchain
 
 [oss-cad-suite](https://github.com/YosysHQ/oss-cad-suite-build) (yosys, nextpnr-ice40,
-icepack, iceprog, iverilog, gtkwave). Put it on PATH for the current shell:
+icepack, iceprog). Put it on PATH for the current shell:
 
 ```sh
-export PATH="$HOME/oss-cad-suite/bin:$PATH"
-# or: source ~/oss-cad-suite/environment
+source ~/oss-cad-suite/environment
 ```
 
 ## Build & flash
 
 ```sh
-make            # synth (yosys) -> place&route (nextpnr) -> bitstream (top.bin)
-make prog       # flash top.bin to the board over USB (iceprog)
-make clean      # remove build artifacts
+make            
+make prog       
+make clean      
 ```
 
-The top-level module must be named `top` and live in `top.v`. Port names must match
-the signal names in `icebreaker.pcf` (that file maps names -> physical pins).
+## Viewing telemetry
 
-## Simulation
+`top.v` streams `XXXX YYYY ZZZZ\r\n` (hex, 16-bit signed accel) at 115200 8N1.
+`imu_view.py` decodes it to signed ints and g:
 
 ```sh
-iverilog -g2012 -o sim tb_<thing>.v <thing>.v   # compile testbench + module
-vvp sim                                          # run; prints output, writes wave.vcd
-gtkwave wave.vcd                                 # inspect waveforms
+./imu_view.py --port <serial-device>  
 ```
-
 
 ## icebreaker.pcf
 
 | Signal      | Pin | Notes                                  |
 |-------------|-----|----------------------------------------|
 | `CLK`       | 35  | 12 MHz oscillator                      |
-| `BTN_N`     | 10  | user button, **active low**            |
-| `LEDR_N`    | 11  | red LED, **active low** (drive 0 = on) |
-| `LEDG_N`    | 37  | green LED, **active low**              |
-| `RX` / `TX` | 6/9 | UART (for debug printing later)        |
-| PMOD 1A/1B/2|     | external headers (IMU goes here later) |
+| `TX`        | 9   | UART to PC                             |
+| `spi_sclk`  | 19  | SPI clock                              |
+| `spi_mosi`  | 25  | master -> IMU                          |
+| `spi_miso`  | 21  | IMU -> master                          |
+| `spi_cs`    | 27  | chip select, **active low**            |
 
-## Roadmap
-
-1. **Light an LED solid** — module, ports, the PCF, build & flash. *(no clock)*
-2. **Blink an LED** — the clock, registers, `always @(posedge clk)`, counters.
-3. **Button -> LED** — inputs, combinational vs clocked logic.
-4. **UART TX** — send a byte to the PC so we have a real debug channel.
-5. **SPI master** — bit-bang/FSM to clock data in and out.
-6. **Read WHO_AM_I (0x00) from ICM-20948** — expect `0xEA`. First real handshake.
-7. Sensor reads (accel/gyro), then HDMI/DVI display.
